@@ -76,11 +76,12 @@ choice_set_size = st.sidebar.slider("Number of Similar Products on Shelf", 2, 25
 # ============================
 # TABS FOR DIFFERENT ANALYSES
 # ============================
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🎯 Purchase Prediction & Placement", 
     "🧠 Behavioral Psychology Analysis",
     "📊 Factor Impact Analysis", 
-    "🔬 SHAP Explainability"
+    "🔬 SHAP Explainability",
+    "🛒 Market Basket Analysis"
 ])
 
 
@@ -557,13 +558,13 @@ with tab4:
     with col1:
         st.subheader("📌 SHAP Summary Plot")
         if os.path.exists("reports/shap/shap_summary.png"):
-            st.image("reports/shap/shap_summary.png", use_container_width=True)
+            st.image("reports/shap/shap_summary.png", width="stretch")
         else:
             st.warning("⚠️ SHAP summary plot not found. Run `python src/explainability/shap_analysis.py` first.")
         
         st.subheader("📊 SHAP Feature Importance (Bar)")
         if os.path.exists("reports/shap/shap_bar.png"):
-            st.image("reports/shap/shap_bar.png", use_container_width=True)
+            st.image("reports/shap/shap_bar.png", width="stretch")
         else:
             st.warning("⚠️ SHAP bar plot not found.")
     
@@ -602,6 +603,115 @@ with tab4:
             height=300,
             scrolling=True
         )
+
+
+# ============================
+# TAB 5: MARKET BASKET ANALYSIS
+# ============================
+with tab5:
+    st.header("🛒 Market Basket Analysis & Cross-Sell Strategy")
+    st.write("Analyze product co-occurrences to optimize store layout and increase basket size.")
+    
+    # Get MBA Data
+    mba_data = engine.get_association_rules()
+    lift_matrix = mba_data["lift_matrix"]
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("🔥 Product Co-occurrence Heatmap")
+        
+        # Toggle between Lift and Raw Counts
+        metric_type = st.radio(
+            "Select Metric:",
+            ["Lift Score (Strength of Association)", "Co-occurrence Count (Frequency)"],
+            horizontal=True
+        )
+        
+        if "Lift" in metric_type:
+            matrix_data = mba_data["lift_matrix"]
+            title = "Cross-Sell Opportunity Matrix (Lift Score)"
+            zmid = 1.0
+            colorscale = 'RdBu_r'
+            fmt = ".1f"
+            st.caption("Darker red indicates products frequently bought together (High Lift)")
+        else:
+            matrix_data = mba_data["co_occurrence"]
+            title = "Product Co-occurrence Matrix (Raw Counts)"
+            zmid = None
+            colorscale = 'Blues'
+            fmt = "d"
+            st.caption("Darker blue indicates higher purchase frequency.")
+        
+        fig_heatmap = go.Figure(data=go.Heatmap(
+            z=matrix_data.values,
+            x=matrix_data.columns,
+            y=matrix_data.index,
+            colorscale=colorscale,
+            zmid=zmid,
+            text=np.round(matrix_data.values, 1) if "Lift" in metric_type else matrix_data.values,
+            texttemplate="%{text}",
+            showscale=True
+        ))
+        
+        fig_heatmap.update_layout(
+            title=title,
+            height=500,
+            xaxis_title="Product B (Consequent)",
+            yaxis_title="Product A (Antecedent)"
+        )
+        st.plotly_chart(fig_heatmap, use_container_width=True)
+        
+    with col2:
+        st.subheader("💡 Strategic Placement Advice")
+        
+        rules = mba_data["rules"]
+        top_rules = rules.drop_duplicates(subset=['lift']).head(5)
+        
+        for _, rule in top_rules.iterrows():
+            st.success(f"**{rule['antecedent']} + {rule['consequent']}**")
+            st.write(f"Strong Signal (Lift: {rule['lift']:.1f}x)")
+            st.caption(f"👉 Place {rule['consequent']} next to {rule['antecedent']} to boost sales.")
+            st.markdown("---")
+
+    st.markdown("---")
+    
+    # Real-time Recommender
+    st.subheader("🤖 Real-Time Cross-Sell Recommender")
+    
+    selected_cart = st.multiselect(
+        "Select items currently in customer's cart:",
+        options=lift_matrix.index.tolist(),
+        default=["Smartphone"]
+    )
+    
+    if selected_cart:
+        recommendations = {}
+        
+        for item in selected_cart:
+            # Get top 3 matches for this item
+            matches = lift_matrix[item].sort_values(ascending=False)
+            for match_item, score in matches.items():
+                if match_item not in selected_cart and score > 1.1:
+                    if match_item in recommendations:
+                        recommendations[match_item] = max(recommendations[match_item], score)
+                    else:
+                        recommendations[match_item] = score
+        
+        if recommendations:
+            st.write("### ✅ Recommended Add-ons:")
+            
+            rec_cols = st.columns(len(recommendations))
+            
+            sorted_recs = sorted(recommendations.items(), key=lambda x: x[1], reverse=True)[:4]
+            
+            for i, (item, score) in enumerate(sorted_recs):
+                with st.container():
+                    st.info(f"**{item}**")
+                    st.caption(f"Lift Score: {score:.1f}x")
+                    st.progress(min(1.0, score/3.0))
+        else:
+            st.warning("No strong recommendations found for this combination.")
 
 
 # ============================

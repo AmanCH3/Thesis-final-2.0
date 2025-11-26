@@ -179,6 +179,106 @@ class RetailAIEngine:
         }
 
 
+    # ----------------------------------------------------------
+    # 7. MARKET BASKET ANALYSIS ENGINE
+    # ----------------------------------------------------------
+    def generate_market_basket_data(self):
+        """
+        Simulate transaction data for Market Basket Analysis.
+        Returns:
+            transactions (list of lists): Simulated baskets
+            products (list): List of unique products
+        """
+        products = ["Smartphone", "Laptop", "Headphones", "Smart Watch", 
+                   "Phone Case", "Laptop Bag", "Screen Guard", "Charger", 
+                   "Gaming Mouse", "Keyboard", "Speaker", "Power Bank"]
+        
+        # Define strong pairs (Ground Truth)
+        strong_pairs = [
+            ("Smartphone", "Phone Case"), ("Smartphone", "Screen Guard"),
+            ("Laptop", "Laptop Bag"), ("Laptop", "Gaming Mouse"),
+            ("Smartphone", "Headphones"), ("Laptop", "Keyboard"),
+            ("Smart Watch", "Phone Case"), ("Charger", "Power Bank")
+        ]
+        
+        transactions = []
+        np.random.seed(42)
+        
+        for _ in range(1000):
+            basket_size = np.random.choice([1, 2, 3, 4], p=[0.3, 0.4, 0.2, 0.1])
+            basket = []
+            
+            # 40% chance to pick a strong pair
+            if np.random.random() < 0.4:
+                pair = strong_pairs[np.random.randint(0, len(strong_pairs))]
+                basket.extend(list(pair))
+            
+            # Fill remaining slots with random products
+            while len(basket) < basket_size:
+                item = np.random.choice(products)
+                if item not in basket:
+                    basket.append(item)
+            
+            transactions.append(basket)
+            
+        return transactions, products
+
+    def get_association_rules(self):
+        """
+        Calculate Co-occurrence Matrix and Lift Scores.
+        """
+        transactions, products = self.generate_market_basket_data()
+        
+        # 1. Co-occurrence Matrix
+        co_matrix = pd.DataFrame(0, index=products, columns=products)
+        item_counts = {p: 0 for p in products}
+        
+        for basket in transactions:
+            for item in basket:
+                item_counts[item] += 1
+            
+            # Count pairs
+            for i in range(len(basket)):
+                for j in range(i + 1, len(basket)):
+                    item1, item2 = basket[i], basket[j]
+                    co_matrix.loc[item1, item2] += 1
+                    co_matrix.loc[item2, item1] += 1
+        
+        # 2. Calculate Lift Matrix
+        total_transactions = len(transactions)
+        lift_matrix = pd.DataFrame(0.0, index=products, columns=products)
+        
+        rules = []
+        
+        for p1 in products:
+            for p2 in products:
+                if p1 == p2:
+                    continue
+                
+                prob_p1 = item_counts[p1] / total_transactions
+                prob_p2 = item_counts[p2] / total_transactions
+                prob_both = co_matrix.loc[p1, p2] / total_transactions
+                
+                if prob_p1 > 0 and prob_p2 > 0:
+                    lift = prob_both / (prob_p1 * prob_p2)
+                    lift_matrix.loc[p1, p2] = lift
+                    
+                    if lift > 1.2:  # Only interesting rules
+                        rules.append({
+                            "antecedent": p1,
+                            "consequent": p2,
+                            "lift": lift,
+                            "confidence": prob_both / prob_p1,
+                            "support": prob_both
+                        })
+        
+        return {
+            "co_occurrence": co_matrix,
+            "lift_matrix": lift_matrix,
+            "rules": pd.DataFrame(rules).sort_values("lift", ascending=False)
+        }
+
+
 # ----------------------------------------------------------
 # EXAMPLE USAGE (for testing)
 # ----------------------------------------------------------
